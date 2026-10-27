@@ -6,57 +6,69 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FixedLocator, FuncFormatter, PercentFormatter
 
 from cosmic_gpt.model import ROOT
 
 RESULTS, CHARTS = ROOT / "results", ROOT / "charts"
 
-SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
+SURFACE, INK, INK2, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#b5b3ac", "#e4e3df"
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]  # categorical slots 1-4, fixed order
 
 plt.rcParams.update({
     "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
-    "axes.edgecolor": GRID, "axes.labelcolor": INK2, "xtick.color": INK2, "ytick.color": INK2,
+    "axes.edgecolor": MUTED, "axes.labelcolor": INK2, "xtick.color": INK2, "ytick.color": INK2,
     "text.color": INK, "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8,
-    "axes.spines.top": False, "axes.spines.right": False, "font.size": 10,
-    "legend.frameon": False, "axes.axisbelow": True, "axes.titleweight": "bold", "axes.titlesize": 11,
+    "axes.spines.top": False, "axes.spines.right": False, "axes.spines.left": False,
+    "axes.axisbelow": True, "font.size": 11, "axes.labelsize": 11, "legend.frameon": False,
+    "legend.fontsize": 11, "xtick.major.size": 0, "ytick.major.size": 0,
 })
 
 
-def wilson(k, n, z=1.96):
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return c - h, c + h
+def friendly(x, _=None):
+    """1, 10, 100, 1k, 10k, 100k, 1M"""
+    for div, suffix in ((1e6, "M"), (1e3, "k")):
+        if x >= div:
+            return f"{x / div:g}{suffix}"
+    return f"{x:g}"
 
 
-def survival(df, by="n_flips"):
-    g = df.groupby(by)["alive"].agg(["sum", "count"]).reset_index()
-    g["frac"] = g["sum"] / g["count"]
-    g["lo"], g["hi"] = wilson(g["sum"], g["count"])
-    return g
+def titled(fig, title, subtitle):
+    fig.text(0.012, 0.975, title, fontsize=15, fontweight="bold", va="top")
+    fig.text(0.012, 0.91, subtitle, fontsize=11, color=INK2, va="top")
 
 
-def survival_lines(ax, series, x="n_flips", xlabel="bit flips (log scale)"):
-    """series: list of (label, df). Lines with Wilson 95% CI bands + right-end direct labels."""
+def n50(df):
+    """Flips at which half the runs are broken (log-interpolated)."""
+    g = df.groupby("n_flips")["alive"].mean()
+    x, y = np.log10(g.index.values.astype(float)), g.values
+    i = np.flatnonzero(y < 0.5)[0]
+    t = (y[i - 1] - 0.5) / (y[i - 1] - y[i])
+    return 10 ** (x[i - 1] + t * (x[i] - x[i - 1]))
+
+
+def working_lines(ax, series, xmax):
+    """series: list of (label, df). % of runs still working vs flips, one line each."""
     for i, (label, df) in enumerate(series):
-        g = survival(df, x)
-        c = SERIES[i]
-        xs = g[x] * 1.06 ** (i - (len(series) - 1) / 2)  # small log-x dodge so CI bars don't overlap
-        ax.errorbar(xs, g["frac"], yerr=[g["frac"] - g["lo"], g["hi"] - g["frac"]], color=c, lw=2, marker="o",
-                    ms=4, elinewidth=1, capsize=0, alpha=0.95, label=label)
+        g = df[df.n_flips <= xmax].groupby("n_flips")["alive"].mean() * 100
+        ax.plot(g.index, g.values, color=SERIES[i], lw=2.5, marker="o", ms=6, label=label,
+                markeredgecolor=SURFACE, markeredgewidth=1.5)
     ax.set_xscale("log")
-    ax.set_ylim(-0.03, 1.03)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("survival fraction")
+    ax.xaxis.set_major_locator(FixedLocator([10 ** k for k in range(int(np.log10(xmax)) + 1)]))
+    ax.xaxis.set_major_formatter(FuncFormatter(friendly))
+    ax.xaxis.set_minor_locator(FixedLocator([]))
+    ax.set_xlim(0.8, xmax * 1.25)
+    ax.set_ylim(-3, 103)
+    ax.yaxis.set_major_formatter(PercentFormatter())
+    ax.set_xlabel("number of random bits flipped (log scale)")
+    ax.set_ylabel("runs still working")
+    ax.axhline(50, color=MUTED, lw=1, ls=(0, (4, 3)), zorder=1)
     ax.legend(loc="upper right")
 
 
 def save(fig, name):
     CHARTS.mkdir(exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(CHARTS / name, dpi=150)
+    fig.savefig(CHARTS / name, dpi=160)
     plt.close(fig)
     print("wrote", CHARTS / name)
 
@@ -66,74 +78,99 @@ def load(k):
     return pd.read_csv(p) if p.exists() else None
 
 
+def line_figure():
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    fig.subplots_adjust(top=0.8, left=0.1, right=0.97, bottom=0.13)
+    return fig, ax
+
+
 def plot1(s1):
-    fig, ax = plt.subplots(figsize=(7, 4.2))
-    survival_lines(ax, [(d, s1[s1.dtype == d]) for d in ["fp32", "fp16", "bf16"]])
-    ax.set_title("GPT-2 survival vs random weight bit flips (20 seeds, bars = 95% Wilson CI)")
+    fig, ax = line_figure()
+    series = [(f"{lbl} ({d}): half broken at {n50(s1[s1.dtype == d]):.0f} flips", s1[s1.dtype == d])
+              for d, lbl in [("fp32", "32-bit"), ("fp16", "16-bit"), ("bf16", "16-bit")]]
+    working_lines(ax, series, 1000)
+    titled(fig, "A dozen random bit flips break GPT-2",
+           "Out of 2-4 billion bits of weights. 20 runs per point; every run with 300+ flips broke.")
     save(fig, "survival_vs_flips.png")
 
 
-def bit_label(b, dtype):
-    exp_bits = {"fp32": 8, "fp16": 5, "bf16": 8}[dtype]
-    width = 32 if dtype == "fp32" else 16
-    if b == width - 1:
-        return "sign"
-    return "exp" if b >= width - 1 - exp_bits else "mant"
-
-
-def plot2(s2):
-    fig, axes = plt.subplots(3, 1, figsize=(9, 8.5))
-    for ax, dtype in zip(axes, ["fp32", "fp16", "bf16"]):
-        d = s2[s2.dtype == dtype]
-        g = d.groupby("bit").agg(hard=("hard_dead", "mean"), dead=("alive", lambda a: 1 - a.mean())).reset_index()
-        soft_only = g["dead"] - g["hard"]
-        ax.bar(g["bit"], g["hard"], width=0.8, color=SERIES[0], label="hard death (NaN/Inf)", edgecolor=SURFACE, lw=1)
-        ax.bar(g["bit"], soft_only, bottom=g["hard"], width=0.8, color=SERIES[1], label="soft death only (ppl > 2x)",
-               edgecolor=SURFACE, lw=1)
-        width = 32 if dtype == "fp32" else 16
-        ax.set_xticks(range(width))
-        ax.set_xticklabels([f"{b}\n{bit_label(b, dtype)}" if b in (0, width - 1) or bit_label(b, dtype) != bit_label(b - 1, dtype)
-                            else str(b) for b in range(width)], fontsize=7)
-        ax.set_ylim(0, 1.05)
-        ax.set_ylabel("death rate")
-        ax.set_title(f"{dtype}: flip 100 random weights at bit b (10 seeds)")
-        ax.grid(axis="x", visible=False)
-    axes[0].legend(loc="upper left")
-    axes[-1].set_xlabel("bit position (0 = mantissa LSB)")
+def plot2(s2, s6):
+    d = s2[s2.dtype == "fp16"]
+    broken = (1 - d.groupby("bit")["alive"].mean()) * 100
+    single = (1 - s6[(s6.dtype == "fp16") & (s6.bit == 14)]["alive"].mean()) * 100
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    fig.subplots_adjust(top=0.8, left=0.1, right=0.97, bottom=0.2)
+    colors = [SERIES[1] if b == 14 else SERIES[0] for b in broken.index]
+    ax.bar(broken.index, broken.values, width=0.8, color=colors)
+    ax.bar_label(ax.containers[0], labels=[f"{v:.0f}%" for v in broken.values], padding=3, fontsize=9, color=INK2)
+    ax.set_ylim(0, 112)
+    ax.set_xlim(-0.7, 15.7)
+    ax.set_xticks(range(16))
+    ax.yaxis.set_major_formatter(PercentFormatter())
+    ax.set_ylabel("runs broken")
+    ax.grid(axis="x", visible=False)
+    ax.annotate(f"top exponent bit: a single flip\nhere breaks GPT-2 {single:.0f}% of the time",
+                xy=(13.6, 96), xytext=(12.9, 70), fontsize=10, color=INK, ha="right",
+                arrowprops=dict(arrowstyle="-", color=INK2, lw=1))
+    for lo, hi, name in [(0, 9, "fraction (bits 0-9)"), (10, 14, "exponent (bits 10-14)"), (15, 15, "sign")]:
+        y = -0.1
+        ax.annotate("", xy=(lo - 0.4, y), xytext=(hi + 0.4, y), xycoords=("data", "axes fraction"),
+                    arrowprops=dict(arrowstyle="-", color=INK2, lw=1))
+        ax.text((lo + hi) / 2, y - 0.03, name, transform=ax.get_xaxis_transform(), ha="center", va="top",
+                color=INK2, fontsize=10)
+    titled(fig, "It's almost all one bit",
+           "16-bit GPT-2. For each bit position, 100 random weights had that bit flipped (10 runs per bar).")
     save(fig, "bit_lethality.png")
 
 
+GROUP_NAMES = {"embed": "Embeddings", "attn": "Attention", "mlp": "Feed-forward (MLP)", "ln": "LayerNorm"}
+
+
 def plot3(s3, group_bits):
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    groups = ["embed", "ln", "attn", "mlp"]
-    series = [(f"{g} ({group_bits[g] / 1e6:.1f} Mbit)", s3[s3.group == g]) for g in groups]
-    survival_lines(axes[0], series)
-    axes[0].set_title("fp16: flips restricted to one tensor group")
-    s3 = s3.assign(per_mbit=s3.n_flips / s3.group.map(group_bits) * 1e6)
-    survival_lines(axes[1], [(lbl, s3[s3.group == g]) for (lbl, _), g in zip(series, groups)],
-                   x="per_mbit", xlabel="flips per Mbit of the group (log scale)")
-    axes[1].set_title("same, normalized by group size")
+    order = ["mlp", "embed", "attn", "ln"]
+    total = sum(group_bits[g] for g in order)
+    share = [group_bits[g] / total * 100 for g in order]
+    half = [n50(s3[s3.group == g]) for g in order]
+    fig, (a, b) = plt.subplots(1, 2, figsize=(9, 4.2), sharey=True)
+    fig.subplots_adjust(top=0.7, left=0.19, right=0.97, bottom=0.04, wspace=0.12)
+    y = np.arange(len(order))[::-1]
+    a.barh(y, share, color=SERIES[0], height=0.6)
+    a.bar_label(a.containers[0], labels=[f"{v:.2f}%" if v < 1 else f"{v:.0f}%" for v in share], padding=4)
+    a.set_title("share of the model's memory", loc="left", fontsize=11, color=INK2)
+    a.set_xlim(0, 60)
+    b.barh(y, half, color=SERIES[1], height=0.6)
+    b.bar_label(b.containers[0], labels=[f"{v:.0f} flips" for v in half], padding=4)
+    b.set_title("flips in that part to break half the runs", loc="left", fontsize=11, color=INK2)
+    b.set_xlim(0, 20)
+    for ax in (a, b):
+        ax.set_yticks(y, [GROUP_NAMES[g] for g in order])
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.spines["bottom"].set_visible(False)
+    titled(fig, "Small parts of the model are just as deadly",
+           "LayerNorm is 0.03% of GPT-2's memory but breaks after about as many flips as the rest,\n"
+           "so per bit it is ~1,000x more fragile. 16-bit GPT-2, 20 runs per point.")
     save(fig, "group_survival.png")
 
 
 def plot4(s1, s4):
-    fig, ax = plt.subplots(figsize=(7, 4.2))
-    survival_lines(ax, [("fp16, no mitigation", s1[s1.dtype == "fp16"]), ("fp16 + clamp to clean [min,max]", s4)])
-    ax.set_title("Mitigation: clamp weights to clean per-tensor range (same flips)")
+    plain = s1[s1.dtype == "fp16"]
+    fig, ax = line_figure()
+    working_lines(ax, [(f"no fix: half broken at {n50(plain):,.0f} flips", plain),
+                       (f"with clamping: half broken at {n50(s4):,.0f} flips", s4)], 1_000_000)
+    titled(fig, "A cheap fix makes it ~100x tougher",
+           "Clamp each weight back into its layer's original min-max range.\n"
+           "Same flips in both lines. 16-bit GPT-2, 20 runs per point.")
     save(fig, "clamp.png")
 
 
-def plot5(s1, s5, bits):
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+def plot5(s1, s5):
     gpt = s1[s1.dtype == "fp16"]
-    series = [("GPT-2 124M fp16", gpt), ("Qwen2.5-0.5B fp16", s5)]
-    survival_lines(axes[0], series)
-    axes[0].set_title("GPT-2 vs a modern 0.5B model")
-    gpt = gpt.assign(per_gbit=gpt.n_flips / bits["gpt2"] * 1e9)
-    s5 = s5.assign(per_gbit=s5.n_flips / bits["qwen"] * 1e9)
-    survival_lines(axes[1], [("GPT-2 124M fp16", gpt), ("Qwen2.5-0.5B fp16", s5)],
-                   x="per_gbit", xlabel="flips per Gbit of weights (log scale)")
-    axes[1].set_title("same, normalized by model size")
+    fig, ax = line_figure()
+    working_lines(ax, [(f"GPT-2 (124M weights): half broken at {n50(gpt):.0f} flips", gpt),
+                       (f"Qwen2.5 (494M weights): half broken at {n50(s5):.0f} flips", s5)], 1000)
+    titled(fig, "A newer, 4x bigger model is no tougher",
+           "Both 16-bit. 20 runs per point for GPT-2, 10 for Qwen2.5-0.5B.")
     save(fig, "modern_model.png")
 
 
@@ -166,18 +203,18 @@ def model_sizes() -> dict:
 
 
 def main():
-    s1, s2, s3, s4, s5 = (load(k) for k in range(1, 6))
+    s1, s2, s3, s4, s5, s6 = (load(k) for k in range(1, 7))
     sizes = model_sizes()
     if s1 is not None:
         plot1(s1)
-    if s2 is not None:
-        plot2(s2)
+    if s2 is not None and s6 is not None:
+        plot2(s2, s6)
     if s3 is not None:
         plot3(s3, sizes["gpt2_group_bits_fp16"])
     if s1 is not None and s4 is not None:
         plot4(s1, s4)
     if s1 is not None and s5 is not None:
-        plot5(s1, s5, {"gpt2": sizes["gpt2_bits_fp16"], "qwen": sizes["qwen_bits_fp16"]})
+        plot5(s1, s5)
 
 
 if __name__ == "__main__":
