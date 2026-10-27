@@ -8,9 +8,9 @@ I flipped uniformly random bits in the parameters of GPT-2 (124M) and measured w
 
 Every run is scored by perplexity on a fixed held-out text, the first 4,096 tokens of the WikiText-2 test set:
 
-$$\text{PPL} = \exp\left(-\frac{1}{N}\sum_{i=1}^{N}\log p_\theta(x_i \mid x_{<i})\right)$$
+$$\text{PPL} = \exp\left(-\frac{1}{N}\sum_{i=1}^{N}\log p_\theta(x_i \mid x_{\lt i})\right)$$
 
-where $p_\theta(x_i \mid x_{<i})$ is the probability the model assigns to the true next token. Lower is better; clean GPT-2 scores 28.2. A run counts as **broken** if its perplexity is more than 2× the clean model's, or if its logits contain NaN or Inf.
+where $p_\theta(x_i \mid x_{\lt i})$ is the probability the model assigns to the true next token. Lower is better; clean GPT-2 scores 28.2. A run counts as **broken** if its perplexity is more than 2× the clean model's, or if its logits contain NaN or Inf.
 
 The 2× threshold barely matters, because damage is almost all-or-nothing. 98.6% of runs ended either within 10% of the clean perplexity or more than 10× above it. Here is what the two outcomes look like, with GPT-2 completing *"The Eiffel Tower is located in"* (greedy decoding):
 
