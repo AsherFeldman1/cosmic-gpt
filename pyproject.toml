@@ -1,0 +1,23 @@
+[project]
+name = "cosmic-gpt"
+version = "0.1.0"
+description = "How many cosmic rays can GPT-2 survive? Bit-flip fault injection on LLM weights."
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.44",
+    "datasets>=2.20",
+    "numpy",
+    "pandas",
+    "matplotlib",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cosmic_gpt"]

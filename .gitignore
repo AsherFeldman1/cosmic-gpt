@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+results/flips/big/
+.pytest_cache/
+results/run_log*.txt
