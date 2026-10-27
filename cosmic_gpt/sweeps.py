@@ -85,8 +85,8 @@ def run(sweep: int, model_name: str, dtypes, jobs, device: str, **kw) -> None:
     done = load_done(path)
     rng_sweep = kw.pop("rng_sweep", sweep)
     for dtype in dtypes:
-        todo = [j for j in jobs if f"s{sweep}_{dtype}_{j[0]}" not in done]
-        if not todo:
+        pending = [j for j in jobs if f"s{sweep}_{dtype}_{j[0]}" not in done]
+        if not pending:
             continue
         runner = Runner(model_name, dtype, device)
         new = not path.exists()
@@ -95,13 +95,13 @@ def run(sweep: int, model_name: str, dtypes, jobs, device: str, **kw) -> None:
             if new:
                 w.writeheader()
             t0 = time.time()
-            for k, (suffix, n, seed, extra, tkw) in enumerate(todo):
+            for k, (suffix, n, seed, extra, tkw) in enumerate(pending):
                 tid = f"s{sweep}_{dtype}_{suffix}"
                 row = runner.trial(sweep, tid, n, seed, trial_rng(rng_sweep, dtype, n, seed, extra), **tkw, **kw)
                 w.writerow(row)
                 f.flush()
-                if k % 50 == 0 or k == len(todo) - 1:
-                    print(f"  sweep{sweep} {dtype} {k + 1}/{len(todo)} {tid} ppl={row['ppl']:.3g} "
+                if k % 50 == 0 or k == len(pending) - 1:
+                    print(f"  sweep{sweep} {dtype} {k + 1}/{len(pending)} {tid} ppl={row['ppl']:.3g} "
                           f"alive={row['alive']} ({time.time() - t0:.0f}s)", flush=True)
         del runner
 

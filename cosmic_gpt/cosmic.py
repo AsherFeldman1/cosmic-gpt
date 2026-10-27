@@ -1,19 +1,20 @@
-"""Cosmic-ray time-to-death estimate for a model sitting in (unprotected) memory.
+"""Cosmic-ray time-to-death estimate for a model sitting in unprotected (non-ECC) memory.
 
-Usage: python -m cosmic_gpt.cosmic [--fit-per-mbit 1000] [--dtype fp16] [--bits N]
+Usage: python -m cosmic_gpt.cosmic [--dtype fp16] [--fit-per-mbit 0.56 1000] [--bits N]
 
-flips/hour = FIT/Mbit * Mbit_in_memory * altitude_multiplier / 1e9
-(1 FIT = 1 failure per 1e9 device-hours.)
+On the ground and in the air:
+    flips/hour = FIT/Mbit * Mbit_in_memory * flux_multiplier / 1e9
+(1 FIT = 1 failure per 1e9 device-hours; multipliers are relative to the
+JESD89A reference, New York City at sea level.) In orbit the radiation
+environment is different (trapped protons, heavy ions), so a measured
+per-bit-per-day upset rate is used directly instead of a multiplier.
 
 Lethality comes from the experiments:
-  * p-model: sweep 2 gives the death rate D_b when 100 weights are flipped at
-    bit b. Assuming independent flips, per-flip lethality at bit b is
-    p_b = 1 - (1 - D_b)^(1/100). For bits where 100 flips (nearly) always kill,
-    that formula can't resolve p_b, so sweep 6 measures P(death | 1 flip at b)
-    directly and replaces it. A random flip lands on a uniformly random bit,
-    so p = mean_b p_b and expected flips-to-death = 1/p.
-  * N50: sweep 1's empirical median-lethal number of flips (log-interpolated),
-    a direct cross-check that doesn't assume independence.
+  * N50: sweep 1's empirical median-lethal number of flips (log-interpolated).
+  * p-model: per-flip lethality p = mean over bit positions b of p_b, where
+    p_b = 1 - (1 - D_b)^(1/100) from sweep 2's death rate D_b at 100 flips,
+    or the directly measured single-flip death rate (sweep 6) for bits where
+    100 flips always kill. Mean flips to death = 1/p.
 """
 
 import argparse
@@ -25,41 +26,46 @@ from cosmic_gpt.model import ROOT
 
 RESULTS = ROOT / "results"
 
-# TODO(you): cite a source for the default soft-error rate. Placeholder value only;
-# published DRAM/SRAM figures span orders of magnitude by process node and ECC.
-DEFAULT_FIT_PER_MBIT = 1000.0
+# Sea-level soft-error rates for DRAM, FIT per Mbit.
+#   0.56: 99% upper bound measured on production servers, excluding machines
+#         with hard errors. Li, Shen, Huang & Chu, "A Memory Soft Error
+#         Measurement on Production Systems", USENIX ATC 2007.
+#   1000: within the 200-5000 FIT/Mbit range of earlier (1990s-era) lab
+#         studies summarized in the same paper.
+FIT_PER_MBIT = {"modern DRAM": 0.56, "1990s DRAM": 1000.0}
 
-# TODO(you): cite sources for these neutron/particle flux multipliers relative to sea level.
-# Placeholder round numbers. The ISS case is a different radiation environment
-# (trapped protons, GCR heavy ions, SAA passes), so a single multiplier is a crude stand-in.
-ALTITUDES = {
-    "sea level": 1.0,
-    "Denver (1.6 km)": 3.5,
-    "airliner (35k ft)": 300.0,
-    "ISS (LEO)": 1000.0,
-}
+# Neutron flux relative to New York City at sea level.
+#   Denver: "more than three times higher in Denver than it is in New York".
+#           Actel, "Effects of Neutrons on Programmable Logic", 2002.
+#   FL400:  "FL400 is 300X > neutron flux @ sea level". S. Wiley, "NASA Aviation
+#           Activities and Space Weather", NASA GSFC Space Weather Workshop, 2014.
+FLUX = {"sea level": 1.0, "Denver": 3.5, "airliner, 40k ft": 300.0}
+
+# Low Earth orbit: 1e-7 to 1e-6 upsets per bit per day. Wang et al., "A Case for
+# Application-Aware Space Radiation Tolerance in Orbital Computing", arXiv:2407.11853, 2024
+# (which also reports 4.76e-7 /bit/day measured over 3 years on JASON-2).
+ORBIT_PER_BIT_DAY = {"low Earth orbit (low)": 1e-7, "low Earth orbit (high)": 1e-6}
 
 GPT2_PARAMS = 124_439_808
 WIDTH = {"fp32": 32, "fp16": 16, "bf16": 16}
 
 
-def p_lethal_per_flip(dtype: str) -> tuple[float, int]:
+def p_lethal_per_flip(dtype: str) -> float:
     s2 = pd.read_csv(RESULTS / "sweep2.csv")
     d = s2[s2.dtype == dtype]
     g = d.groupby("bit")["alive"].agg(["sum", "count"])
     n_flips = int(d.n_flips.iloc[0])
     dead = 1 - g["sum"] / g["count"]
-    # All-dead bits would give p_b = 1, which over-states it; cap at the
-    # resolution of the seed count (half a seed short of total death).
+    # All-dead bits would give p_b = 1; cap at the seed-count resolution
+    # (sweep 6 replaces these with a direct measurement below).
     dead = dead.clip(upper=1 - 0.5 / g["count"])
     p_b = 1 - (1 - dead) ** (1 / n_flips)
-    # Saturated bits: replace with the directly measured single-flip death rate (sweep 6).
     s6_path = RESULTS / "sweep6.csv"
     if s6_path.exists():
         s6 = pd.read_csv(s6_path)
         direct = 1 - s6[s6.dtype == dtype].groupby("bit")["alive"].mean()
         p_b.loc[direct.index] = direct
-    return float(p_b.mean()), len(g)
+    return float(p_b.mean())
 
 
 def n50(dtype: str) -> float:
@@ -82,33 +88,40 @@ def human(hours: float) -> str:
     for unit, h in (("yr", 8766), ("d", 24), ("h", 1)):
         if hours >= h:
             return f"{hours / h:,.1f} {unit}"
-    return f"{hours * 60:,.1f} min"
+    return f"{hours * 60:,.0f} min"
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--fit-per-mbit", type=float, default=DEFAULT_FIT_PER_MBIT,
-                    help=f"soft-error rate in FIT per Mbit (default {DEFAULT_FIT_PER_MBIT:g}, placeholder - see TODO)")
     ap.add_argument("--dtype", default="fp16", choices=list(WIDTH))
+    ap.add_argument("--fit-per-mbit", type=float, nargs="+", default=None,
+                    help="sea-level soft-error rate(s) in FIT per Mbit (default: 0.56 and 1000, see FIT_PER_MBIT)")
     ap.add_argument("--bits", type=float, default=None,
                     help="bits exposed in memory (default: GPT-2 weights only, params x dtype width)")
     args = ap.parse_args()
 
     bits = args.bits or GPT2_PARAMS * WIDTH[args.dtype]
     mbit = bits / 2**20
-    p, nbits = p_lethal_per_flip(args.dtype)
+    fits = {f"{f:g} FIT/Mbit": f for f in args.fit_per_mbit} if args.fit_per_mbit else FIT_PER_MBIT
+    p = p_lethal_per_flip(args.dtype)
     med = n50(args.dtype)
 
-    print(f"GPT-2 {args.dtype}: {bits:,.0f} bits ({mbit:,.0f} Mbit) at {args.fit_per_mbit:g} FIT/Mbit")
-    print(f"p_lethal per random flip (sweep 2, mean over {nbits} bit positions): {p:.2e}"
-          f"  -> expected flips to death 1/p = {1 / p:,.0f}")
-    print(f"empirical N50 (sweep 1, median lethal flips): {med:,.0f}\n")
-    hdr = f"{'environment':<20} {'mult':>7} {'flips/hour':>12} {'death (1/p)':>14} {'death (N50)':>14}"
+    print(f"GPT-2 {args.dtype}: {bits:,.0f} weight bits ({mbit:,.0f} Mbit)")
+    print(f"median flips to death (sweep 1): {med:,.0f};  mean flips to death 1/p (sweeps 2+6): {1 / p:,.0f}\n")
+
+    rows = []
+    for label, fit in fits.items():
+        for env, mult in FLUX.items():
+            rows.append((env, f"{label} ({fit:g} FIT/Mbit) x{mult:g}" if label in FIT_PER_MBIT
+                         else f"{label} x{mult:g}", fit * mbit * mult / 1e9))
+    for env, rate in ORBIT_PER_BIT_DAY.items():
+        rows.append((env.split(" (")[0], f"{rate:g} upsets/bit/day", rate * bits / 24))
+
+    hdr = f"{'environment':<18} {'rate basis':<36} {'flips/hour':>11} {'median death':>13} {'mean death':>12}"
     print(hdr)
     print("-" * len(hdr))
-    for name, mult in ALTITUDES.items():
-        rate = args.fit_per_mbit * mbit * mult / 1e9
-        print(f"{name:<20} {mult:>7g} {rate:>12.3g} {human(1 / p / rate):>14} {human(med / rate):>14}")
+    for env, basis, rate in rows:
+        print(f"{env:<18} {basis:<36} {rate:>11.3g} {human(med / rate):>13} {human(1 / p / rate):>12}")
 
 
 if __name__ == "__main__":
