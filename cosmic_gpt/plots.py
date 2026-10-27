@@ -90,7 +90,7 @@ def plot1(s1):
               for d, lbl in [("fp32", "32-bit"), ("fp16", "16-bit"), ("bf16", "16-bit")]]
     working_lines(ax, series, 1000)
     titled(fig, "A dozen random bit flips break GPT-2",
-           "Out of 2-4 billion bits of weights. 20 runs per point; every run with 300+ flips broke.")
+           "Out of 2-4 billion parameter bits. 20 runs per point; every run with 300+ flips broke.")
     save(fig, "survival_vs_flips.png")
 
 
@@ -167,8 +167,8 @@ def plot4(s1, s4):
 def plot5(s1, s5):
     gpt = s1[s1.dtype == "fp16"]
     fig, ax = line_figure()
-    working_lines(ax, [(f"GPT-2 (124M weights): half broken at {n50(gpt):.0f} flips", gpt),
-                       (f"Qwen2.5 (494M weights): half broken at {n50(s5):.0f} flips", s5)], 1000)
+    working_lines(ax, [(f"GPT-2 (124M params): half broken at {n50(gpt):.0f} flips", gpt),
+                       (f"Qwen2.5 (494M params): half broken at {n50(s5):.0f} flips", s5)], 1000)
     titled(fig, "A newer, 4x bigger model is no tougher",
            "Both 16-bit. 20 runs per point for GPT-2, 10 for Qwen2.5-0.5B.")
     save(fig, "modern_model.png")
