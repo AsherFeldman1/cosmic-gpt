@@ -4,6 +4,8 @@ Cosmic rays striking memory chips occasionally flip a single bit. A language mod
 
 I flipped uniformly random bits in the parameters of GPT-2 (124M) and measured whether the model still worked: 2,580 runs in total across six experiments.
 
+Write-up, with an animated replay of one run and interactive charts: [asherfeldman.com/blog/cosmic-gpt](https://asherfeldman.com/blog/cosmic-gpt/).
+
 ## What "broken" means
 
 Every run is scored by perplexity on a fixed held-out text, the first 4,096 tokens of the WikiText-2 test set:
