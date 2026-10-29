@@ -1,6 +1,6 @@
 """Cosmic-ray time-to-death estimate for a model sitting in unprotected (non-ECC) memory.
 
-Usage: python -m cosmic_gpt.cosmic [--dtype fp16] [--fit-per-mbit 0.56 1000] [--bits N]
+Usage: python -m cosmic_gpt.cosmic [--dtype fp16] [--fit-per-mbit 0.56] [--orbit-rate 3e-7] [--bits N]
 
 On the ground and in the air:
     flips/hour = FIT/Mbit * Mbit_in_memory * flux_multiplier / 1e9
@@ -32,7 +32,8 @@ RESULTS = ROOT / "results"
 #         Measurement on Production Systems", USENIX ATC 2007.
 #   1000: within the 200-5000 FIT/Mbit range of earlier (1990s-era) lab
 #         studies summarized in the same paper.
-FIT_PER_MBIT = {"modern DRAM": 0.56, "1990s DRAM": 1000.0}
+MODERN_FIT, OLDER_FIT = 0.56, 1000.0
+FIT_PER_MBIT = {"modern DRAM": MODERN_FIT}   # pass --fit-per-mbit 1000 for 1990s DRAM
 
 # Neutron flux relative to New York City at sea level.
 #   Denver: "more than three times higher in Denver than it is in New York".
@@ -44,7 +45,8 @@ FLUX = {"sea level": 1.0, "Denver": 3.5, "airliner, 40k ft": 300.0}
 # Low Earth orbit: 1e-7 to 1e-6 upsets per bit per day. Wang et al., "A Case for
 # Application-Aware Space Radiation Tolerance in Orbital Computing", arXiv:2407.11853, 2024
 # (which also reports 4.76e-7 /bit/day measured over 3 years on JASON-2).
-ORBIT_PER_BIT_DAY = {"low Earth orbit (low)": 1e-7, "low Earth orbit (high)": 1e-6}
+# The default is the middle of that range on a log scale.
+ORBIT_PER_BIT_DAY = 3e-7
 
 GPT2_PARAMS = 124_439_808
 WIDTH = {"fp32": 32, "fp16": 16, "bf16": 16}
@@ -83,19 +85,23 @@ def n50(dtype: str) -> float:
 
 
 def human(hours: float) -> str:
+    """Two significant figures, as in the write-up: 1,337 years prints as 1,300 yr."""
     if not np.isfinite(hours):
         return "never"
+    sig = lambda x: f"{float(f'{x:.2g}'):,.0f}" if x >= 10 else f"{x:.1f}"
     for unit, h in (("yr", 8766), ("d", 24), ("h", 1)):
         if hours >= h:
-            return f"{hours / h:,.1f} {unit}"
-    return f"{hours * 60:,.0f} min"
+            return f"{sig(hours / h)} {unit}"
+    return f"{sig(hours * 60)} min"
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dtype", default="fp16", choices=list(WIDTH))
     ap.add_argument("--fit-per-mbit", type=float, nargs="+", default=None,
-                    help="sea-level soft-error rate(s) in FIT per Mbit (default: 0.56 and 1000, see FIT_PER_MBIT)")
+                    help="sea-level soft-error rate(s) in FIT per Mbit (default: 0.56, modern DRAM; 1000 for 1990s DRAM)")
+    ap.add_argument("--orbit-rate", type=float, default=ORBIT_PER_BIT_DAY,
+                    help="low Earth orbit upsets per bit per day (default: 3e-7, middle of the measured 1e-7 to 1e-6)")
     ap.add_argument("--bits", type=float, default=None,
                     help="bits exposed in memory (default: GPT-2 weights only, params x dtype width)")
     args = ap.parse_args()
@@ -114,8 +120,7 @@ def main():
         for env, mult in FLUX.items():
             rows.append((env, f"{label} ({fit:g} FIT/Mbit) x{mult:g}" if label in FIT_PER_MBIT
                          else f"{label} x{mult:g}", fit * mbit * mult / 1e9))
-    for env, rate in ORBIT_PER_BIT_DAY.items():
-        rows.append((env.split(" (")[0], f"{rate:g} upsets/bit/day", rate * bits / 24))
+    rows.append(("low Earth orbit", f"{args.orbit_rate:g} upsets/bit/day", args.orbit_rate * bits / 24))
 
     hdr = f"{'environment':<18} {'rate basis':<36} {'flips/hour':>11} {'median death':>13} {'mean death':>12}"
     print(hdr)
