@@ -60,16 +60,18 @@ Qwen2.5-0.5B (494M parameters, 2024) breaks after about 8 flips. It also has 4×
 
 Soft-error rates depend on altitude (the atmosphere absorbs most of the neutron flux) and on the memory technology. Published sea-level rates for DRAM range from about 0.56 to 1,000 FIT/Mbit (failures per 10⁹ device-hours per megabit), with modern hardware at the low end. The estimates below assume memory without ECC, as in most laptops and phones. Server memory typically has ECC, which corrects single-bit errors.
 
-Time until fp16 GPT-2 has a 50% chance of being broken:
+Time until fp16 GPT-2 has a 50% chance of being broken, on modern DRAM (0.56 FIT/Mbit):
 
-| environment | modern DRAM (0.56 FIT/Mbit) | older DRAM (1,000 FIT/Mbit) |
-|---|---|---|
-| Sea level | ~1,300 years | ~9 months |
-| Denver (3.5× flux) | ~380 years | ~2.5 months |
-| Airliner at 40,000 ft (300× flux) | ~4.5 years | ~1 day |
-| Low Earth orbit | 9 minutes to 1.5 hours | (same) |
+| environment | time |
+|---|---|
+| Sea level | ~1,300 years |
+| Denver (3.5× flux) | ~380 years |
+| Airliner at 40,000 ft (300× flux) | ~4.5 years |
+| Low Earth orbit | ~30 minutes |
 
-Orbit is a different radiation environment, so it uses a measured per-bit rate instead of a flux multiplier: 10⁻⁷ to 10⁻⁶ upsets per bit per day, which means hundreds to thousands of flips per day across GPT-2's parameters.
+Older DRAM was far worse: at 1,000 FIT/Mbit, typical of earlier lab studies, the same model would last about nine months at sea level.
+
+Orbit is a different radiation environment, so it uses a measured per-bit rate instead of a flux multiplier. Measurements span 10⁻⁷ to 10⁻⁶ upsets per bit per day; the table uses 3 × 10⁻⁷, the middle of that range on a log scale, which comes to about 600 flips a day across GPT-2's parameters.
 
 Sources:
 - Modern DRAM (0.56 FIT/Mbit): Li, Shen, Huang & Chu, ["A Memory Soft Error Measurement on Production Systems"](https://sites.rochester.edu/michaelhuang/wp-content/uploads/2023/03/usenix07.pdf), USENIX ATC 2007. The 1,000 FIT/Mbit figure is within the 200–5,000 range of older lab studies that this paper summarizes.
