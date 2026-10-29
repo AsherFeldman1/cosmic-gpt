@@ -2,7 +2,7 @@
 
 Cosmic rays striking memory chips occasionally flip a single bit. A language model is just its parameters sitting in memory, so how many of those flips can it take?
 
-I flipped uniformly random bits in the parameters of GPT-2 (124M) and measured whether the model still worked: 2,580 runs in total across six experiments.
+I flipped uniformly random bits in the parameters of GPT-2 (124M) and measured whether the model still worked: 2,840 runs in total across six experiments.
 
 Write-up, with an animated replay of one run and interactive charts: [asherfeldman.com/blog/cosmic-gpt](https://asherfeldman.com/blog/cosmic-gpt/).
 
@@ -30,7 +30,7 @@ The 2× threshold barely matters, because damage is almost all-or-nothing. 98.6%
 
 ![A dozen random bit flips break GPT-2](charts/survival_vs_flips.png)
 
-In fp16, GPT-2's parameters take up about 2 billion bits. **Twelve random flips break it half the time**, and 300 flips broke every run. fp32 doubles the bit count but only raises the median to 22 flips.
+In fp16, GPT-2's parameters take up about 2 billion bits. **Twelve random flips break it half the time**, and 300 flips broke every run. fp32 holds out somewhat longer, to about 22 flips: it has the same single deadly exponent bit (below) among twice as many bits. bf16 (about 16) isn't distinguishable from fp16 at 20 runs per point.
 
 ### 2. It's almost all one bit
 
@@ -42,7 +42,7 @@ An fp16 number is 1 sign bit, 5 exponent bits and 10 mantissa (fraction) bits, w
 
 ![Small parts of the model are just as deadly](charts/group_survival.png)
 
-LayerNorm parameters are 0.03% of the model, yet flips confined to them break it about as quickly as flips confined to attention, the MLPs or the embeddings. Per bit, LayerNorm is roughly 1,000× more fragile.
+LayerNorm parameters are 0.03% of the model, yet flips confined to them break it about as quickly as flips confined to attention, the MLPs or the embeddings.
 
 ### 4. A cheap fix makes it about 100× tougher
 
