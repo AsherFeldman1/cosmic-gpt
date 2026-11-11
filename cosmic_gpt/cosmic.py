@@ -1,13 +1,14 @@
 """Cosmic-ray time-to-death estimate for a model sitting in unprotected (non-ECC) memory.
 
-Usage: python -m cosmic_gpt.cosmic [--dtype fp16] [--fit-per-mbit 0.56] [--orbit-rate 3e-7] [--bits N]
+Usage: python -m cosmic_gpt.cosmic [--dtype fp16] [--fit-per-mbit 0.56] [--orbit-rate 1e-11] [--bits N]
 
 On the ground and in the air:
     flips/hour = FIT/Mbit * Mbit_in_memory * flux_multiplier / 1e9
 (1 FIT = 1 failure per 1e9 device-hours; multipliers are relative to the
 JESD89A reference, New York City at sea level.) In orbit the radiation
-environment is different (trapped protons, heavy ions), so a measured
-per-bit-per-day upset rate is used directly instead of a multiplier.
+environment is different (trapped protons, heavy ions), so a
+per-bit-per-day upset rate measured on DRAM flown in space is used directly
+instead of a multiplier.
 
 Lethality comes from the experiments:
   * N50: sweep 1's empirical median-lethal number of flips (log-interpolated).
@@ -42,11 +43,18 @@ FIT_PER_MBIT = {"modern DRAM": MODERN_FIT}   # pass --fit-per-mbit 1000 for 1990
 #           Activities and Space Weather", NASA GSFC Space Weather Workshop, 2014.
 FLUX = {"sea level": 1.0, "Denver": 3.5, "airliner, 40k ft": 300.0}
 
-# Low Earth orbit: 1e-7 to 1e-6 upsets per bit per day. Wang et al., "A Case for
-# Application-Aware Space Radiation Tolerance in Orbital Computing", arXiv:2407.11853, 2024
-# (which also reports 4.76e-7 /bit/day measured over 3 years on JASON-2).
-# The default is the middle of that range on a log scale.
-ORBIT_PER_BIT_DAY = 3e-7
+# Orbit: DRAM flown in space, upsets per bit per day.
+#   1e-13 to 1e-11: "per-bit SEU rates on the order of 10^-13 to 10^-11 per day" for
+#         SDRAM through DDR3. Ladbury et al., "Lessons Learned from Radiation Induced
+#         Effects on Solid State Recorders (SSR) and Memories", NASA NEPP, 2013. Its
+#         Table 4 gives 3.1e-3 SEU/device-day observed on LRO's 512 Mbit SDRAM (5.8e-12/bit/day).
+#   2.4e-12 to 1.0e-10: three SDRAMs on CARMEN-2 (JASON-2, 1336 km, 66 deg, harsher
+#         trapped-proton environment than a 500-650 km datacenter orbit), Jul 2008 to Feb 2011.
+#         Samaras, "In flight data from CARMEN2/MEX experiment: SEE on memories", 2011.
+# The often-quoted 1e-7 to 1e-6 (e.g. Wang et al., arXiv:2407.11853) matches CARMEN-2's
+# SRAMs, not its DRAMs, so it doesn't apply to model weights held in DRAM.
+# Pass --orbit-rate 1e-12 or 1e-10 for the ends of the DRAM range.
+ORBIT_PER_BIT_DAY = 1e-11
 
 GPT2_PARAMS = 124_439_808
 WIDTH = {"fp32": 32, "fp16": 16, "bf16": 16}
@@ -101,7 +109,7 @@ def main():
     ap.add_argument("--fit-per-mbit", type=float, nargs="+", default=None,
                     help="sea-level soft-error rate(s) in FIT per Mbit (default: 0.56, modern DRAM; 1000 for 1990s DRAM)")
     ap.add_argument("--orbit-rate", type=float, default=ORBIT_PER_BIT_DAY,
-                    help="low Earth orbit upsets per bit per day (default: 3e-7, middle of the measured 1e-7 to 1e-6)")
+                    help="low Earth orbit upsets per bit per day (default: 1e-11, DRAM flown in space; measured range 1e-12 to 1e-10)")
     ap.add_argument("--bits", type=float, default=None,
                     help="bits exposed in memory (default: GPT-2 weights only, params x dtype width)")
     args = ap.parse_args()

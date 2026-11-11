@@ -67,17 +67,17 @@ Time until fp16 GPT-2 has a 50% chance of being broken, on modern DRAM (0.56 FIT
 | Sea level | ~1,300 years |
 | Denver (3.5× flux) | ~380 years |
 | Airliner at 40,000 ft (300× flux) | ~4.5 years |
-| Low Earth orbit | ~30 minutes |
+| Low Earth orbit | ~1.7 years |
 
 Older DRAM was far worse: at 1,000 FIT/Mbit, typical of earlier lab studies, the same model would last about nine months at sea level.
 
-Orbit is a different radiation environment, so it uses a measured per-bit rate instead of a flux multiplier. Measurements span 10⁻⁷ to 10⁻⁶ upsets per bit per day; the table uses 3 × 10⁻⁷, the middle of that range on a log scale, which comes to about 600 flips a day across GPT-2's parameters.
+Orbit is a different radiation environment, so it uses a per-bit rate measured on DRAM flown in space instead of a flux multiplier: about 10⁻¹¹ upsets per bit per day, or one flip every ~50 days across GPT-2's parameters. That's roughly 800× the modern sea-level rate. The DRAM chips in the flight data span 10⁻¹² to 10⁻¹⁰, which puts GPT-2 anywhere from 2 months to 17 years. The often-quoted 10⁻⁷ to 10⁻⁶ per bit per day comes from SRAM, not DRAM. In orbit, most corrupted data in DRAM comes from rarer events where one particle upsets a chip's control logic and corrupts hundreds to thousands of bits at once; this estimate leaves those out.
 
 Sources:
 - Modern DRAM (0.56 FIT/Mbit): Li, Shen, Huang & Chu, ["A Memory Soft Error Measurement on Production Systems"](https://sites.rochester.edu/michaelhuang/wp-content/uploads/2023/03/usenix07.pdf), USENIX ATC 2007. The 1,000 FIT/Mbit figure is within the 200–5,000 range of older lab studies that this paper summarizes.
 - Denver: Actel, ["Effects of Neutrons on Programmable Logic"](https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/ProductDocuments/SupportingCollateral/serwp.pdf), 2002 ("more than three times higher in Denver than it is in New York").
 - 40,000 ft: S. Wiley, ["NASA Aviation Activities and Space Weather"](https://ccmc.gsfc.nasa.gov/publicData/SWxWorkshops/2014/Wiley_aviationactivities.pdf), NASA GSFC, 2014 ("FL400 is 300X > neutron flux @ sea level").
-- Orbit: Wang et al., ["A Case for Application-Aware Space Radiation Tolerance in Orbital Computing"](https://arxiv.org/abs/2407.11853), 2024.
+- Orbit: Ladbury et al., ["Lessons Learned from Radiation Induced Effects on Solid State Recorders (SSR) and Memories"](https://nepp.nasa.gov/files/24662/Ladbury_2013_n224_SSR%20Update.pdf), NASA NEPP, 2013 ("per-bit SEU rates on the order of 10⁻¹³ to 10⁻¹¹ per day"; 5.8 × 10⁻¹² per bit per day observed on LRO's 512 Mbit SDRAM), and Samaras, ["In flight data from CARMEN2/MEX experiment: SEE on memories"](https://escies.org/download/webDocumentFile?id=49242), 2011 (three SDRAMs on JASON-2 at 1,336 km: 2.4 × 10⁻¹² to 1.0 × 10⁻¹⁰ per bit per day).
 
 Run `uv run python -m cosmic_gpt.cosmic` for the full table, including other number formats and your own error rates.
 
